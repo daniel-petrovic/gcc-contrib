@@ -418,6 +418,20 @@ along with GCC; see the file COPYING3.  If not see
 	&& (wi::to_wide (@1)
 	    == TYPE_PRECISION (TREE_TYPE (@0)) - 1)))))
 
+/* (T)((UT)X + (UT)IMM), 0 <= IMM <= MAX  */
+(match (signed_integer_add_nonnegative_imm @0 @1)
+ (nop_convert@2 (plus (nop_convert @0) INTEGER_CST@1))
+ (if (!TYPE_UNSIGNED (TREE_TYPE (@0)) && types_match (@0, @2)
+      && TYPE_UNSIGNED (TREE_TYPE (@1))
+      && TYPE_PRECISION (TREE_TYPE (@1)) == TYPE_PRECISION (TREE_TYPE (@0))
+      && !tree_int_cst_sign_bit (@1))))
+
+/* SUM = (T)((UT)X + (UT)IMM), 0 <= IMM <= MAX
+   Overflow = (X >= 0) & (SUM < 0)  */
+(match (signed_integer_sat_add_nonnegative_imm_overflow @0 @1 @2)
+ (bit_and:c (ge @0 integer_zerop)
+	    (lt (signed_integer_add_nonnegative_imm@2 @0 @1) integer_zerop)))
+
 /* Saturation add for signed integer.  */
 (if (INTEGRAL_TYPE_P (type) && !TYPE_UNSIGNED (type))
  (match (signed_integer_sat_add @0 @1)
@@ -457,6 +471,28 @@ along with GCC; see the file COPYING3.  If not see
 	 (signed_integer_sat_val @0)
 	 @2)
   (if (wi::eq_p (wi::to_wide (@1), wi::to_wide (@3)))))
+ (match (signed_integer_sat_add @0 @1)
+  /* T SUM = (T)((UT)X + (UT)IMM), 0 <= IMM <= MAX
+     SAT_S_ADD = ((X >= 0) & (SUM < 0)) ? MAX : SUM  */
+  (cond^ (signed_integer_sat_add_nonnegative_imm_overflow @0 @1 @2)
+	 max_value @2)
+  (if (types_match (type, @0))))
+ (match (signed_integer_sat_add @0 @1)
+  /* T SUM = (T)((UT)X + (UT)IMM), 0 <= IMM <= MAX
+     Overflow = (X >= 0) & (SUM < 0)
+     SAT_S_ADD = Overflow != 0 ? MAX : SUM  */
+  (cond^ (ne (signed_integer_sat_add_nonnegative_imm_overflow @0 @1 @2)
+	     integer_zerop)
+	 max_value @2)
+  (if (types_match (type, @0))))
+ (match (signed_integer_sat_add @0 @1)
+  /* T SUM = (T)((UT)X + (UT)IMM), 0 <= IMM <= MAX
+     SAT_S_ADD = (~X & SUM) < 0 ? MAX : SUM  */
+  (cond^ (lt (bit_and:c (bit_not @0)
+		       (signed_integer_add_nonnegative_imm@2 @0 @1))
+	     integer_zerop)
+	 max_value @2)
+  (if (types_match (type, @0))))
  (match (signed_integer_sat_add @0 @1)
    /* SUM = .ADD_OVERFLOW (X, Y)
       SAT_S_ADD = IMAGPART_EXPR (SUM) != 0 ? (-(T)(X < 0) ^ MAX) : SUM  */
